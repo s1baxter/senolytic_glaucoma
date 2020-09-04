@@ -1,0 +1,93 @@
+---
+title: "R Notebook for Analyses of Patients with Senolytic Medication Exposure"
+output: html_notebook
+---
+
+#Effects on Visual Acuity and Intraocular Pressure 
+For 56 eyes from 28 patients, sufficient data were available to examine visual acuity (VA) and intraocular pressure (IOP) before and after senolytic medication exposure.
+
+We will load the data for both LogMAR VA ("va_data.csv") and IOP ("iop_data.csv") and preview the datasets.
+```{r}
+va_data <-read.csv("va_data.csv", header=TRUE)
+head(va_data)
+
+```
+
+Here is the same for the IOP data.
+```{r}
+iop_data <-read.csv("iop_data.csv", header=TRUE)
+head(iop_data)
+```
+For both datasets, the "grp" variable indicates their senolytic exposure status. Therefore, grp=0 means this was a value taken before senolytic exposure, and grp=1 indicates this value was taken after senolytic exposure. The "cid" variable indicates the patient, as there are two eyes from each patient.
+
+Wilcoxon signed-rank tests with clustering were performed using the clusrank package, with each eye's average pre- and post-exposure measurements serving as a matched pair and each patient representing a cluster to account for correlation between eyes. Here we will start with VA to generate mean, standard deviation, and p-value for the comparison:
+
+```{r}
+install.packages("clusrank")
+library(clusrank)
+clusWilcox.test(x_va ~ grp + cluster(cid), va_data, method = "rgl")
+```
+
+And the same for IOP: 
+```{r}
+clusWilcox.test(x_iop ~ grp + cluster(cid), iop_data, method = "rgl")
+
+```
+
+
+These p-values are demonstrated in Figure 3 of the manuscript. 
+
+#Effects on Glaucoma Progression 
+The analyses below detail the characteristics of 16 eyes from 9 individuals who had sufficient reliable visual fields after senolytic exposure to matched controls consisting of 47 eyes of 26 individuals without any history of senolytic exposure. The controls were matched by age, sex, race, and glaucoma treatment. 
+
+First, we will load in the longitudinal dataset, where each row represents a visual field. Identifiers have been removed to preserve patient confidentiality. 
+
+
+```{r}
+case_control_data <- read.csv("case_control_data.csv")
+head(case_control_data)
+```
+
+Next, we will demonstrate baseline characteristics, both at the person-level and at the eye-level. Data will be restricted to baseline fields for this initial analysis. We will start with patient-level characteristics (age, gender, race, senolytic exposure). This is Table 1 in the manuscript. 
+
+```{r}
+library(dplyr)
+library(Hmisc)
+library(lme4)
+library(lmerTest)
+library(table1)
+
+case_control_unique <-distinct(case_control_data)
+
+case_control_ptlevel <-select(case_control_unique, ID, BL_age, gender, race, senolytic_exposure)
+case_control_ptlevel_unique <- distinct(case_control_ptlevel)
+table1(~ BL_age + factor(gender) + factor(race) | senolytic_exposure, data=case_control_ptlevel_unique)
+
+```
+We will generate p-values for each of these characteristics via Chi-squared tests for categorical variables and t-tests for continuous variables. These are also reported in Table 1 of the manuscript.
+
+```{r}
+t.test(BL_age ~ senolytic_exposure, data=case_control_ptlevel_unique)
+
+case_control_ptlevel_unique$gender <- as.factor(case_control_ptlevel_unique$gender)
+chisq.test(case_control_ptlevel_unique$gender, case_control_ptlevel_unique$senolytic_exposure, correct=FALSE)
+chisq.test(case_control_ptlevel_unique$race, case_control_ptlevel_unique$senolytic_exposure, correct=FALSE)
+```
+
+Now we will evaluate any baseline differences in eye-level characteristics, particularly mean deviation, number of glaucoma medications, number of glaucoma surgeries, and years of follow-up. These results are described in the main manuscript text.
+
+```{r}
+case_control_eyes_unique <- distinct(case_control_data)
+t.test(BL_MD ~ senolytic_exposure, data=case_control_eyes_unique)
+t.test(glc_drops ~ senolytic_exposure, data=case_control_eyes_unique)
+t.test(glc_surg ~ senolytic_exposure, data=case_control_eyes_unique)
+
+```
+
+To compare visual field progression, we generated a multivariable mixed effects model of change in MD with history of senolytic drug exposure, length of follow-up, baseline age (defined as age at first visual field), baseline MD (defined as MD at first visual field), sex, and race, and glaucoma treatment designated as co-variates. We included interaction terms between baseline age and follow-up as well as between baseline MD and follow-up. Eyes and patients were included as random effects to account for within-subject correlation. 
+
+```{r}
+model <- lmer(MD ~ senolytic_exposure + followup_years + BL_age + BL_MD + gender + race + BL_age*followup_years + BL_MD*followup_years + any_glc_treatment + (1 | Eye) + (1 | ID) + (0 + followup_years | Eye), data = case_control_data)
+summary(model) 
+```
+
